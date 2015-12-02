@@ -4,13 +4,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.BaseJsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.squareup.okhttp.MediaType;
 import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
+import com.squareup.okhttp.RequestBody;
 import com.squareup.okhttp.Response;
+import com.squareup.okhttp.ResponseBody;
 import com.squareup.okhttp.ws.WebSocket;
 import com.squareup.okhttp.ws.WebSocketCall;
 import com.squareup.okhttp.ws.WebSocketListener;
 import okio.Buffer;
+import okio.BufferedSink;
 import okio.BufferedSource;
 
 import java.io.IOException;
@@ -54,7 +58,7 @@ public class Socket {
         }
 
         @Override
-        public void onOpen(final WebSocket webSocket, final Request request, final Response response) throws IOException {
+        public void onOpen(WebSocket webSocket, Response response) {
             LOG.log(Level.FINE, "WebSocket onOpen: {0}", webSocket);
             Socket.this.webSocket = webSocket;
             cancelReconnectTimer();
@@ -68,13 +72,13 @@ public class Socket {
         }
 
         @Override
-        public void onMessage(final BufferedSource payload, final WebSocket.PayloadType type) throws IOException {
-            LOG.log(Level.FINE, "Envelope received: {0}", payload);
+        public void onMessage(ResponseBody message) throws IOException {
+            LOG.log(Level.FINE, "Envelope received: {0}", message.source());
 
             try {
-                if (type == WebSocket.PayloadType.TEXT) {
+                if (message.contentType() == WebSocket.TEXT) {
                     final Envelope envelope =
-                            objectMapper.readValue(payload.inputStream(), Envelope.class);
+                            objectMapper.readValue(message.source().inputStream(), Envelope.class);
                     for (final Channel channel : channels) {
                         if (channel.isMember(envelope.getTopic())) {
                             channel.trigger(envelope.getEvent(), envelope);
@@ -88,7 +92,7 @@ public class Socket {
             } catch (IOException e) {
                 LOG.log(Level.SEVERE, "Failed to read message payload", e);
             } finally {
-                payload.close();
+                message.source().close();
             }
         }
 
@@ -109,7 +113,7 @@ public class Socket {
         }
 
         @Override
-        public void onFailure(final IOException e) {
+        public void onFailure(IOException e, Response response) {
             LOG.log(Level.WARNING, "WebSocket connection error", e);
             try {
                 for (final IErrorCallback callback : errorCallbacks) {
@@ -245,7 +249,7 @@ public class Socket {
 
         if (this.isConnected()) {
             try {
-                webSocket.sendMessage(WebSocket.PayloadType.TEXT, payload);
+                webSocket.sendMessage(RequestBody.create(WebSocket.TEXT, payload.readUtf8()));
             }
             catch(IllegalStateException e) {
                 LOG.log(Level.SEVERE, "Attempted to send push when socket is not open", e);
@@ -330,7 +334,7 @@ public class Socket {
         while (this.isConnected() && !this.sendBuffer.isEmpty()) {
             final Buffer buffer = this.sendBuffer.removeFirst();
             try {
-                this.webSocket.sendMessage(WebSocket.PayloadType.TEXT, buffer);
+                this.webSocket.sendMessage(RequestBody.create(WebSocket.TEXT, buffer.readUtf8()));
             } catch (IOException e) {
                 LOG.log(Level.SEVERE, "Failed to send payload {0}", buffer);
             }
