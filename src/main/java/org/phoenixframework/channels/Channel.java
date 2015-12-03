@@ -108,8 +108,12 @@ public class Channel {
         this.on(ChannelEvent.ERROR.getPhxEvent(), new IMessageCallback() {
             @Override
             public void onMessage(final Envelope envelope) {
-                final String reason = envelope.getReason();
-                callback.onError(reason);
+                try {
+                    final String reason = envelope.getReason();
+                    callback.onError(reason);
+                } catch (Exception e) {
+                    callback.onError("Unknown error");
+                }
             }
         });
     }
